@@ -1,5 +1,6 @@
 [workspace]
 members = [
-    "auction",
-    "time-wizz",
+    "auction-service",
+    "time-service",
+    "app",
 ]

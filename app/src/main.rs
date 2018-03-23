@@ -1,17 +1,13 @@
-extern crate auction_exonum as auction;
+extern crate auction_service;
 extern crate exonum;
-extern crate time_wizz;
+extern crate time_service;
 
 use exonum::blockchain::{GenesisConfig, ValidatorKeys};
 use exonum::node::{Node, NodeApiConfig, NodeConfig};
 use exonum::storage::MemoryDB;
 
-use std::sync::mpsc::{Receiver, Sender};
-use std::sync::mpsc;
-use std::thread;
-
-use time_wizz::TimeService;
-use auction::AuctionService;
+use time_service::TimeService;
+use auction_service::AuctionService;
 
 fn node_config() -> NodeConfig {
     let (consensus_public_key, consensus_secret_key) = exonum::crypto::gen_keypair();
@@ -50,33 +46,22 @@ fn node_config() -> NodeConfig {
     }
 }
 
-fn test(t: time_wizz::MyTime) {
-    println!("{:?}", t);
-}
-
 fn main() {
     exonum::helpers::init_logger().unwrap();
 
-    // let (send, recv) = mpsc::channel();
-
     println!("Creating in-memory database...");
-    let mut ts = TimeService::new();
+    let mut time_service = TimeService::new();
+    let auction_service = AuctionService::new();
 
-    ts.subscribe(|t| {
+    time_service.subscribe(|t| {
         println!("{:?}", t);
     });
 
-    // ts.subscribe(send.clone());
-
     let node = Node::new(
         MemoryDB::new(),
-        vec![Box::new(AuctionService), Box::new(ts)],
+        vec![Box::new(auction_service), Box::new(time_service)],
         node_config(),
     );
-
-    // thread::spawn(move || loop {
-    //     println!("{:?}", recv.recv().unwrap());
-    // });
 
     println!("Starting a single node...");
     println!("Blockchain is ready for transactions!");

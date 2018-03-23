@@ -1,11 +1,12 @@
 [package]
-name = "auction-exonum"
-version = "0.0.1"
+name = "app"
+version = "0.1.0"
 authors = ["quicky84 <victor.ermolaev@protonmail.com>"]
 
 [dependencies]
 exonum =  { git = "https://github.com/exonum/exonum" }
-time-wizz = { path = "../time-wizz" }
+time-service = { path = "../time-service" }
+auction-service = { path = "../auction-service" }
 iron = "0.6.0"
 bodyparser = "0.8.0"
 router = "0.6.0"

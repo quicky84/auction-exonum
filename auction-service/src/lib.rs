@@ -9,15 +9,14 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
-extern crate time_wizz;
 
 // Import necessary types from crates.
 
 use exonum::blockchain::{ApiContext, Blockchain, ExecutionError, ExecutionResult, Service,
-                         ServiceContext, Transaction, TransactionSet};
+                         Transaction, TransactionSet};
 use exonum::encoding::serialize::FromHex;
 use exonum::node::{ApiSender, TransactionSend};
-use exonum::messages::{Message, RawTransaction};
+use exonum::messages::RawTransaction;
 use exonum::storage::{Fork, ListIndex, MapIndex, Snapshot};
 use exonum::crypto::{Hash, PublicKey};
 use exonum::encoding;
@@ -29,8 +28,8 @@ use iron::headers::ContentType;
 use iron::modifiers::Header;
 use router::Router;
 
-use std::thread;
 // // // // // // // // // // CONSTANTS // // // // // // // // // //
+const SERVICE_NAME: &str = "auction";
 
 /// Service ID for the `Service` trait.
 const SERVICE_ID: u16 = 1;
@@ -765,9 +764,15 @@ impl Api for AuctionApi {
 
 pub struct AuctionService;
 
+impl AuctionService {
+    pub fn new() -> AuctionService {
+        AuctionService {}
+    }
+}
+
 impl Service for AuctionService {
-    fn service_name(&self) -> &'static str {
-        "auction"
+    fn service_name(&self) -> &str {
+        SERVICE_NAME
     }
 
     fn service_id(&self) -> u16 {
@@ -794,15 +799,6 @@ impl Service for AuctionService {
 
     // Create a REST `Handler` to process web requests to the node.
     fn public_api_handler(&self, ctx: &ApiContext) -> Option<Box<Handler>> {
-        let bc = ctx.blockchain().clone();
-
-        // thread::spawn(move || loop {
-        //     let s = bc.snapshot();
-        //     let schema = time_wizz::TimeSchema::new(s);
-        //     println!("{:?}", schema.time().get());
-        //     thread::sleep_ms(1000);
-        // });
-
         let mut router = Router::new();
         let api = AuctionApi {
             channel: ctx.node_channel().clone(),

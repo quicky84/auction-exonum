@@ -40,7 +40,7 @@ use iron::Handler;
 use router::Router;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use exonum::blockchain::{ApiContext, Blockchain, ExecutionError, ExecutionResult, Schema, Service,
                          ServiceContext, Transaction, TransactionSet};
@@ -53,7 +53,6 @@ use exonum::helpers::fabric::{Context, ServiceFactory};
 use exonum::api::Api;
 
 // use std::collections::HashMap;
-use std::sync::mpsc::Sender;
 
 /// Time service id.
 const SERVICE_ID: u16 = 4;
@@ -199,7 +198,6 @@ impl TxTime {
             _ => {
                 // Change the time in the storage.
                 schema.time_mut().set(validator_times[max_byzantine_nodes]);
-                // VVV
             }
         }
     }
@@ -415,19 +413,17 @@ impl From<MockTimeProvider> for Box<TimeProvider> {
     }
 }
 
-// pub type TimeSender = Sender<DateTime<Utc>>;
+pub type ConsolidatedTime = DateTime<Utc>;
 
-pub type MyTime = DateTime<Utc>;
-
-pub trait MyHandler: Send + Sync {
-    fn call(&self, MyTime);
+pub trait TimeSubscriber: Send + Sync {
+    fn call(&self, ConsolidatedTime);
 }
 
-impl<T> MyHandler for T
+impl<T> TimeSubscriber for T
 where
-    T: Fn(MyTime) + Send + Sync,
+    T: Fn(ConsolidatedTime) + Send + Sync,
 {
-    fn call(&self, time: MyTime) {
+    fn call(&self, time: ConsolidatedTime) {
         (*self)(time)
     }
 }
@@ -436,8 +432,7 @@ where
 pub struct TimeService {
     /// Current time.
     time: Box<TimeProvider>,
-    // subscribers: Mutex<Vec<TimeSender>>,
-    subscribers: Vec<Box<MyHandler>>,
+    subscribers: Vec<Box<TimeSubscriber>>,
 }
 
 impl Default for TimeService {
@@ -456,20 +451,15 @@ impl TimeService {
     pub fn with_provider<T: Into<Box<TimeProvider>>>(time_provider: T) -> TimeService {
         TimeService {
             time: time_provider.into(),
-            // subscribers: Mutex::new(vec![]),
             subscribers: vec![],
         }
     }
 
-    // pub fn subscribe(&mut self, subscriber: TimeSender) {
-    //     self.subscribers.lock().unwrap().push(subscriber);
-    // }
-
-    pub fn subscribe<T>(&mut self, myhandler: T)
+    pub fn subscribe<T>(&mut self, subscriber: T)
     where
-        T: MyHandler + 'static,
+        T: TimeSubscriber + 'static,
     {
-        self.subscribers.push(Box::new(myhandler));
+        self.subscribers.push(Box::new(subscriber));
     }
 }
 
@@ -503,15 +493,7 @@ impl Service for TimeService {
             return;
         }
 
-        // // Call subscribers with the current time.
-        // for (_, subscriber) in &self.subscribers {
-        //     subscriber(self.time.current_time());
-        // }
-        // let subscribers = self.subscribers.lock().unwrap();
-        // for subscriber in subscribers.iter() {
-        //     subscriber.send(self.time.current_time()).unwrap();
-        // }
-
+        // Call subscribers with the current time.
         for s in &self.subscribers {
             s.call(self.time.current_time());
         }

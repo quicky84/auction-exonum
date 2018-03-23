@@ -1,5 +1,5 @@
 [package]
-name = "time-wizz"
+name = "auction-service"
 version = "0.0.1"
 authors = ["quicky84 <victor.ermolaev@protonmail.com>"]
 
@@ -10,6 +10,5 @@ bodyparser = "0.8.0"
 router = "0.6.0"
 serde = "1.0"
 serde_json = "1.0"
-serde_derive = "1.0"
+serde_derive = "1.0.0"
 failure = "0.1.1"
-chrono = { version = "0.4.0", features = ["serde"] }
