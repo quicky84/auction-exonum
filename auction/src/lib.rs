@@ -9,6 +9,7 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
+extern crate time_wizz;
 
 // Import necessary types from crates.
 
@@ -28,6 +29,7 @@ use iron::headers::ContentType;
 use iron::modifiers::Header;
 use router::Router;
 
+use std::thread;
 // // // // // // // // // // CONSTANTS // // // // // // // // // //
 
 /// Service ID for the `Service` trait.
@@ -792,6 +794,15 @@ impl Service for AuctionService {
 
     // Create a REST `Handler` to process web requests to the node.
     fn public_api_handler(&self, ctx: &ApiContext) -> Option<Box<Handler>> {
+        let bc = ctx.blockchain().clone();
+
+        // thread::spawn(move || loop {
+        //     let s = bc.snapshot();
+        //     let schema = time_wizz::TimeSchema::new(s);
+        //     println!("{:?}", schema.time().get());
+        //     thread::sleep_ms(1000);
+        // });
+
         let mut router = Router::new();
         let api = AuctionApi {
             channel: ctx.node_channel().clone(),

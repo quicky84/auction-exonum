@@ -40,7 +40,7 @@ use iron::Handler;
 use router::Router;
 use chrono::{DateTime, Duration, TimeZone, Utc};
 
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock};
 
 use exonum::blockchain::{ApiContext, Blockchain, ExecutionError, ExecutionResult, Schema, Service,
                          ServiceContext, Transaction, TransactionSet};
@@ -52,7 +52,8 @@ use exonum::encoding;
 use exonum::helpers::fabric::{Context, ServiceFactory};
 use exonum::api::Api;
 
-use std::collections::HashMap;
+// use std::collections::HashMap;
+use std::sync::mpsc::Sender;
 
 /// Time service id.
 const SERVICE_ID: u16 = 4;
@@ -414,21 +415,18 @@ impl From<MockTimeProvider> for Box<TimeProvider> {
     }
 }
 
+pub type TimeSender = Sender<DateTime<Utc>>;
+
 /// Define the service.
-#[derive(Debug)]
 pub struct TimeService {
     /// Current time.
     time: Box<TimeProvider>,
-    // `Fn` is required to capture its closure.
-    subscribers: HashMap<&str, &Fn(DateTime<Utc>) -> ()>,
+    subscribers: Mutex<Vec<TimeSender>>,
 }
 
 impl Default for TimeService {
     fn default() -> TimeService {
-        TimeService {
-            time: Box::new(SystemTimeProvider) as Box<TimeProvider>,
-            subscribers: HashMap::new(),
-        }
+        TimeService::with_provider(Box::new(SystemTimeProvider) as Box<TimeProvider>)
     }
 }
 
@@ -442,28 +440,12 @@ impl TimeService {
     pub fn with_provider<T: Into<Box<TimeProvider>>>(time_provider: T) -> TimeService {
         TimeService {
             time: time_provider.into(),
-            subscribers: HashMap::new(),
+            subscribers: Mutex::new(vec![]),
         }
     }
 
-    /// Subscribe under name. Returns true if subscription is successful, otherwise false.
-    pub fn subscribe(&mut self, key: &str, exec: &Fn(DateTime<Utc>) -> ()) -> bool {
-        match self.subscribers.insert(key, exec) {
-            // Subscriber with such name already exists.
-            Some(_) => false,
-            // Insert is successful.
-            None => true,
-        }
-    }
-
-    /// Unsubscribe. Returns true if the relevant subscription is removed, otherwise false.
-    pub fn unsubscribe(&mut self, key: &str) -> bool {
-        match self.subscribers.remove(key) {
-            // Subscriber successfully removed.
-            Some(_) => true,
-            // Key not found.
-            None => true,
-        }
+    pub fn subscribe(&mut self, subscriber: TimeSender) {
+        self.subscribers.lock().unwrap().push(subscriber);
     }
 }
 
@@ -497,9 +479,13 @@ impl Service for TimeService {
             return;
         }
 
-        // Call subscribers with the current time.
-        for (_, subscriber) in &self.subscribers {
-            subscriber(self.time.current_time());
+        // // Call subscribers with the current time.
+        // for (_, subscriber) in &self.subscribers {
+        //     subscriber(self.time.current_time());
+        // }
+        let subscribers = self.subscribers.lock().unwrap();
+        for subscriber in subscribers.iter() {
+            subscriber.send(self.time.current_time()).unwrap();
         }
 
         let (pub_key, sec_key) = (*context.public_key(), context.secret_key().clone());

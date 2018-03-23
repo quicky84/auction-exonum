@@ -6,8 +6,11 @@ use exonum::blockchain::{GenesisConfig, ValidatorKeys};
 use exonum::node::{Node, NodeApiConfig, NodeConfig};
 use exonum::storage::MemoryDB;
 
-use time_wizz::TimeService;
+use std::sync::mpsc::{Receiver, Sender};
+use std::sync::mpsc;
+use std::thread;
 
+use time_wizz::TimeService;
 use auction::AuctionService;
 
 fn node_config() -> NodeConfig {
@@ -50,14 +53,22 @@ fn node_config() -> NodeConfig {
 fn main() {
     exonum::helpers::init_logger().unwrap();
 
+    let (send, recv) = mpsc::channel();
+
     println!("Creating in-memory database...");
-    let ts = TimeService::new();
+    let mut ts = TimeService::new();
+    ts.subscribe(send.clone());
 
     let node = Node::new(
         MemoryDB::new(),
         vec![Box::new(AuctionService), Box::new(ts)],
         node_config(),
     );
+
+    thread::spawn(move || loop {
+        println!("{:?}", recv.recv().unwrap());
+    });
+
     println!("Starting a single node...");
     println!("Blockchain is ready for transactions!");
     node.run().unwrap();
