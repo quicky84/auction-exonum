@@ -415,13 +415,29 @@ impl From<MockTimeProvider> for Box<TimeProvider> {
     }
 }
 
-pub type TimeSender = Sender<DateTime<Utc>>;
+// pub type TimeSender = Sender<DateTime<Utc>>;
+
+pub type MyTime = DateTime<Utc>;
+
+pub trait MyHandler: Send + Sync {
+    fn call(&self, MyTime);
+}
+
+impl<T> MyHandler for T
+where
+    T: Fn(MyTime) + Send + Sync,
+{
+    fn call(&self, time: MyTime) {
+        (*self)(time)
+    }
+}
 
 /// Define the service.
 pub struct TimeService {
     /// Current time.
     time: Box<TimeProvider>,
-    subscribers: Mutex<Vec<TimeSender>>,
+    // subscribers: Mutex<Vec<TimeSender>>,
+    subscribers: Vec<Box<MyHandler>>,
 }
 
 impl Default for TimeService {
@@ -440,12 +456,20 @@ impl TimeService {
     pub fn with_provider<T: Into<Box<TimeProvider>>>(time_provider: T) -> TimeService {
         TimeService {
             time: time_provider.into(),
-            subscribers: Mutex::new(vec![]),
+            // subscribers: Mutex::new(vec![]),
+            subscribers: vec![],
         }
     }
 
-    pub fn subscribe(&mut self, subscriber: TimeSender) {
-        self.subscribers.lock().unwrap().push(subscriber);
+    // pub fn subscribe(&mut self, subscriber: TimeSender) {
+    //     self.subscribers.lock().unwrap().push(subscriber);
+    // }
+
+    pub fn subscribe<T>(&mut self, myhandler: T)
+    where
+        T: MyHandler + 'static,
+    {
+        self.subscribers.push(Box::new(myhandler));
     }
 }
 
@@ -483,9 +507,13 @@ impl Service for TimeService {
         // for (_, subscriber) in &self.subscribers {
         //     subscriber(self.time.current_time());
         // }
-        let subscribers = self.subscribers.lock().unwrap();
-        for subscriber in subscribers.iter() {
-            subscriber.send(self.time.current_time()).unwrap();
+        // let subscribers = self.subscribers.lock().unwrap();
+        // for subscriber in subscribers.iter() {
+        //     subscriber.send(self.time.current_time()).unwrap();
+        // }
+
+        for s in &self.subscribers {
+            s.call(self.time.current_time());
         }
 
         let (pub_key, sec_key) = (*context.public_key(), context.secret_key().clone());

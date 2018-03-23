@@ -50,14 +50,23 @@ fn node_config() -> NodeConfig {
     }
 }
 
+fn test(t: time_wizz::MyTime) {
+    println!("{:?}", t);
+}
+
 fn main() {
     exonum::helpers::init_logger().unwrap();
 
-    let (send, recv) = mpsc::channel();
+    // let (send, recv) = mpsc::channel();
 
     println!("Creating in-memory database...");
     let mut ts = TimeService::new();
-    ts.subscribe(send.clone());
+
+    ts.subscribe(|t| {
+        println!("{:?}", t);
+    });
+
+    // ts.subscribe(send.clone());
 
     let node = Node::new(
         MemoryDB::new(),
@@ -65,9 +74,9 @@ fn main() {
         node_config(),
     );
 
-    thread::spawn(move || loop {
-        println!("{:?}", recv.recv().unwrap());
-    });
+    // thread::spawn(move || loop {
+    //     println!("{:?}", recv.recv().unwrap());
+    // });
 
     println!("Starting a single node...");
     println!("Blockchain is ready for transactions!");
