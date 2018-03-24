@@ -54,7 +54,7 @@ fn main() {
     let auction_service = AuctionService::new();
 
     time_service.subscribe(|t| {
-        println!("{:?}", t);
+        println!("In app: {:?}", t);
     });
 
     let node = Node::new(

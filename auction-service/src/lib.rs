@@ -762,11 +762,33 @@ impl Api for AuctionApi {
 
 // // // // // // // // // // SERVICE DECLARATION // // // // // // // // // //
 
-pub struct AuctionService;
+pub trait TimeConsumer: Send + Sync {
+    fn call(&self, i32);
+}
+
+impl<T> TimeConsumer for T
+where
+    T: Fn(i32) + Send + Sync,
+{
+    fn call(&self, time: i32) {
+        (*self)(time)
+    }
+}
+
+pub struct AuctionService {
+    consumers: Vec<Box<TimeConsumer>>,
+}
 
 impl AuctionService {
     pub fn new() -> AuctionService {
-        AuctionService {}
+        AuctionService { consumers: vec![] }
+    }
+
+    pub fn consume(&self, time: i32) {
+        for consumer in &self.consumers {
+            consumer.call(time);
+        }
+        println!("Inside Auction {}", time);
     }
 }
 
