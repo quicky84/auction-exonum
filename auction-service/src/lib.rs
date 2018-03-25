@@ -1,4 +1,5 @@
 extern crate bodyparser;
+extern crate chrono;
 #[macro_use]
 extern crate exonum;
 #[macro_use]
@@ -9,11 +10,12 @@ extern crate serde;
 #[macro_use]
 extern crate serde_derive;
 extern crate serde_json;
+extern crate time_service;
 
 // Import necessary types from crates.
 
 use exonum::blockchain::{ApiContext, Blockchain, ExecutionError, ExecutionResult, Service,
-                         Transaction, TransactionSet};
+                         ServiceContext, Transaction, TransactionSet};
 use exonum::encoding::serialize::FromHex;
 use exonum::node::{ApiSender, TransactionSend};
 use exonum::messages::RawTransaction;
@@ -27,6 +29,10 @@ use iron::status::Status;
 use iron::headers::ContentType;
 use iron::modifiers::Header;
 use router::Router;
+
+use chrono::{DateTime, Utc};
+
+use time_service::TimeSchema;
 
 // // // // // // // // // // CONSTANTS // // // // // // // // // //
 const SERVICE_NAME: &str = "auction";
@@ -84,6 +90,12 @@ encoding_struct! {
         // Item with item_id is auctioned.
         item_id: u64,
         start_price: u64,
+        //Start time of the auction.
+        started_at: DateTime<Utc>,
+        // Bids are during the `duration` seconds starting from `started_at`.
+        // Type `Duration` is not used because
+        // the trait `exonum::encoding::SegmentField<'_>` is not implemented for `chrono::Duration`
+        duration: u64,
         // History of bids. Last bid wins.
         bidding: Vec<Bid>,
         // If closed => no auctions are accepted.
@@ -128,6 +140,8 @@ impl Auction {
             self.auctioner_key(),
             self.item_id(),
             self.start_price(),
+            self.started_at(),
+            self.duration(),
             bidding,
             self.closed(),
         )
@@ -139,6 +153,8 @@ impl Auction {
             self.auctioner_key(),
             self.item_id(),
             self.start_price(),
+            self.started_at(),
+            self.duration(),
             self.bidding(),
             true,
         )
@@ -235,6 +251,8 @@ transactions! {
             item_id: u64,
             /// Starting price of the item.
             start_price: u64,
+            /// Bids are accepted in the period of `duration` seconds.
+            duration: u64,
         }
 
         struct TxBid {
@@ -292,6 +310,11 @@ pub enum Error {
     #[fail(display = "Insufficient funds")]
     ///
     InsufficientFunds = 7,
+
+    // It takes time for nodes to agree on time.
+    #[fail(display = "Consensus on time has not been reached.")]
+    ///
+    NoTimeConsensus = 8,
 }
 
 impl From<Error> for ExecutionError {
@@ -325,12 +348,6 @@ impl Transaction for TxNewParticipant {
         println!("\nParticipant is registered:\n{:?}", participant);
 
         schema.participants_mut().put(self.pub_key(), participant);
-
-        let participants = schema.participants();
-        println!("\nParticipants");
-        for p in participants.iter() {
-            println!("{:?}", p);
-        }
 
         Ok(())
     }
@@ -367,12 +384,6 @@ impl Transaction for TxNewItem {
 
         schema.items_mut().push(item);
 
-        let items = schema.items();
-        println!("\nItems");
-        for i in items.iter() {
-            println!("{:?}", i);
-        }
-
         Ok(())
     }
 }
@@ -387,6 +398,22 @@ impl Transaction for TxNewAuction {
 
     /// Adds a new item, id is computed.
     fn execute(&self, view: &mut Fork) -> ExecutionResult {
+        //First find out if we can time the auction.
+        let time = {
+            // Scope is needed to use `view` as refrence,
+            // get data and then release `view` for a possible move.
+
+            let time_schema = TimeSchema::new(view.as_ref());
+            // QQQ: what exactly is this time?
+            // time from the last block?
+            match time_schema.time().get() {
+                Some(t) => t,
+                None => Err(Error::NoTimeConsensus)?,
+            }
+        };
+
+        // Check that the auction is legit.
+
         let mut schema = AuctionSchema::new(view);
 
         // Check whether the participant (auctioner) is registered.
@@ -412,7 +439,8 @@ impl Transaction for TxNewAuction {
             self.auctioner_key(),
             item.id(),
             self.start_price(),
-            // Initial bid is made by the owner of the item.
+            time,
+            self.duration(),
             vec![],
             false,
         );
@@ -420,12 +448,6 @@ impl Transaction for TxNewAuction {
         println!("\nAuction is created:\n{:?}", auction);
 
         schema.auctions_mut().push(auction);
-
-        let auctions = schema.auctions();
-        println!("\nAuctions");
-        for a in auctions.iter() {
-            println!("{:?}", a);
-        }
 
         Ok(())
     }
@@ -762,35 +784,7 @@ impl Api for AuctionApi {
 
 // // // // // // // // // // SERVICE DECLARATION // // // // // // // // // //
 
-pub trait TimeConsumer: Send + Sync {
-    fn call(&self, i32);
-}
-
-impl<T> TimeConsumer for T
-where
-    T: Fn(i32) + Send + Sync,
-{
-    fn call(&self, time: i32) {
-        (*self)(time)
-    }
-}
-
-pub struct AuctionService {
-    consumers: Vec<Box<TimeConsumer>>,
-}
-
-impl AuctionService {
-    pub fn new() -> AuctionService {
-        AuctionService { consumers: vec![] }
-    }
-
-    pub fn consume(&self, time: i32) {
-        for consumer in &self.consumers {
-            consumer.call(time);
-        }
-        println!("Inside Auction {}", time);
-    }
-}
+pub struct AuctionService;
 
 impl Service for AuctionService {
     fn service_name(&self) -> &str {
@@ -807,9 +801,39 @@ impl Service for AuctionService {
         Ok(tx.into())
     }
 
-    // fn handle_commit(&self, context: &ServiceContext) {
-    //     println!("{:#?}\n", context.snapshot().);
-    // }
+    fn handle_commit(&self, context: &ServiceContext) {
+        let snapshot = context.snapshot();
+        let time_schema = time_service::TimeSchema::new(&snapshot);
+
+        if let Some(time) = time_schema.time().get() {
+            let auction_schema = AuctionSchema::new(&snapshot);
+            let idx = auction_schema.auctions();
+            let auctions: Vec<Auction> = idx.iter().collect();
+            for auction in &auctions {
+                if auction.closed() {
+                    continue;
+                }
+                println!("\n{:?}", auction);
+                // Compute for how the auction lasts.
+                // This is a positive number.
+                // QQQ: for some reason direct substraction does not work although the Sub trait is implemeted.
+                let duration = time.signed_duration_since(auction.started_at())
+                    .num_seconds()
+                    .abs() as u64;
+                println!("Duration {:?} secs", duration);
+                if duration >= auction.duration() {
+                    // Auction must be closed.
+                    println!("Closing the auction");
+                    let sec_key = context.secret_key().clone();
+                    context
+                        .transaction_sender()
+                        .send(Box::new(TxCloseAuction::new(auction.id(), &sec_key)))
+                        .unwrap();
+                }
+            }
+        }
+    }
+
     // Hashes for the service tables that will be included into the state hash.
     // To simplify things, we don't have [Merkelized tables][merkle] in the service storage
     // for now, so we return an empty vector.
