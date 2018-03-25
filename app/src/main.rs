@@ -50,16 +50,16 @@ fn main() {
     exonum::helpers::init_logger().unwrap();
 
     println!("Creating in-memory database...");
-    let mut time_service = TimeService::new();
-    let auction_service = AuctionService::new();
+    let time_service = TimeService::new();
 
-    time_service.subscribe(|t| {
-        println!("In app: {:?}", t);
-    });
+    // To use this, add `mut` to the declaration of the `time_service`.
+    // time_service.subscribe(|t| {
+    //     println!("In app: {:?}", t);
+    // });
 
     let node = Node::new(
         MemoryDB::new(),
-        vec![Box::new(auction_service), Box::new(time_service)],
+        vec![Box::new(AuctionService), Box::new(time_service)],
         node_config(),
     );
 
