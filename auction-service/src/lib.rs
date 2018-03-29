@@ -14,7 +14,7 @@ extern crate time_service;
 
 // Import necessary types from crates.
 
-use exonum::blockchain::{ApiContext, Blockchain, ExecutionError, ExecutionResult, Service,
+use exonum::blockchain::{ApiContext, Blockchain, ExecutionError, ExecutionResult, Schema, Service,
                          ServiceContext, Transaction, TransactionSet};
 use exonum::encoding::serialize::FromHex;
 use exonum::node::{ApiSender, TransactionSend};
@@ -267,6 +267,8 @@ transactions! {
         struct TxCloseAuction {
             /// Auction to close.
             auction_id: u64,
+            /// Key of the closing paty.
+            pub_key: &PublicKey,
         }
     }
 }
@@ -315,6 +317,11 @@ pub enum Error {
     #[fail(display = "Consensus on time has not been reached.")]
     ///
     NoTimeConsensus = 8,
+
+    // TxCloseAuction may only be performed by the validator nodes.
+    #[fail(display = "Transaction is not authorized.")]
+    ///
+    UnauthorizedTransaction = 9,
 }
 
 impl From<Error> for ExecutionError {
@@ -529,16 +536,32 @@ impl Transaction for TxBid {
     }
 }
 
+impl TxCloseAuction {
+    fn check_signed_by_validator(&self, snapshot: &Snapshot) -> ExecutionResult {
+        let keys = Schema::new(&snapshot).actual_configuration().validator_keys;
+        let signed = keys.iter().any(|k| k.service_key == *self.pub_key());
+        if !signed {
+            Err(Error::UnauthorizedTransaction)?
+        } else {
+            Ok(())
+        }
+    }
+}
+
 impl Transaction for TxCloseAuction {
     /// Verifies integrity of the transaction by checking the transaction
     /// signature.
     fn verify(&self) -> bool {
-        // self.verify_signature(self.pub_key())
+        // Auction can only be closed by the node itself.
+        // This cannot be done here and will be left until the execution.
         true
     }
 
     /// Adds a new item, id is computed.
     fn execute(&self, view: &mut Fork) -> ExecutionResult {
+        // Check that the transaction has been signed by a validator node.
+        self.check_signed_by_validator(view.as_ref())?;
+
         let mut schema = AuctionSchema::new(view);
 
         // Check whether the auction exists.
@@ -813,21 +836,25 @@ impl Service for AuctionService {
                 if auction.closed() {
                     continue;
                 }
-                println!("\n{:?}", auction);
+                // println!("\n{:?}", auction);
                 // Compute for how the auction lasts.
                 // This is a positive number.
                 // QQQ: for some reason direct substraction does not work although the Sub trait is implemeted.
                 let duration = time.signed_duration_since(auction.started_at())
                     .num_seconds()
                     .abs() as u64;
-                println!("Duration {:?} secs", duration);
+                // println!("Duration {:?} secs", duration);
                 if duration >= auction.duration() {
                     // Auction must be closed.
                     println!("Closing the auction");
-                    let sec_key = context.secret_key().clone();
+                    let (pub_key, sec_key) = (*context.public_key(), context.secret_key().clone());
                     context
                         .transaction_sender()
-                        .send(Box::new(TxCloseAuction::new(auction.id(), &sec_key)))
+                        .send(Box::new(TxCloseAuction::new(
+                            auction.id(),
+                            &pub_key,
+                            &sec_key,
+                        )))
                         .unwrap();
                 }
             }
