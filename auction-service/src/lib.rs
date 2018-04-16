@@ -322,6 +322,10 @@ pub enum Error {
     #[fail(display = "Transaction is not authorized.")]
     ///
     UnauthorizedTransaction = 9,
+
+    #[fail(display = "You may not bid on your own item.")]
+    ///
+    NoSelfBidding = 10,
 }
 
 impl From<Error> for ExecutionError {
@@ -486,6 +490,10 @@ impl Transaction for TxBid {
 
         if auction.closed() {
             Err(Error::AuctionClosed)?;
+        }
+
+        if self.bidder_key() == auction.auctioner_key() {
+            Err(Error::NoSelfBidding)?;
         }
 
         // Bidding contain at least 1 element.
